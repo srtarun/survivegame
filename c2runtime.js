@@ -24324,6 +24324,7 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Touch.prototype.cnds.OnTouchObject,
 	cr.system_object.prototype.cnds.CompareVar,
 	cr.system_object.prototype.acts.SetVar,
+	cr.plugins_.Touch.prototype.cnds.OnTouchEnd,
 	cr.plugins_.Touch.prototype.cnds.IsTouchingObject,
 	cr.system_object.prototype.acts.SubVar,
 	cr.system_object.prototype.exps.random,
