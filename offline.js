@@ -1,5 +1,5 @@
 ﻿{
-	"version": 1490175976,
+	"version": 1490202648,
 	"fileList": [
 		"data.js",
 		"c2runtime.js",
@@ -18,7 +18,6 @@
 		"images/button-sheet0.png",
 		"images/enem1-sheet0.png",
 		"images/enem2-sheet0.png",
-		"images/spritefont.png",
 		"images/scorebutton-sheet0.png",
 		"images/shield-sheet0.png",
 		"images/shieldpower-sheet0.png",
