@@ -22904,6 +22904,1402 @@ cr.plugins_.Touch = function(runtime)
 	};
 	pluginProto.exps = new Exps();
 }());
+;
+;
+cr.behaviors.Flash = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var behaviorProto = cr.behaviors.Flash.prototype;
+	behaviorProto.Type = function(behavior, objtype)
+	{
+		this.behavior = behavior;
+		this.objtype = objtype;
+		this.runtime = behavior.runtime;
+	};
+	var behtypeProto = behaviorProto.Type.prototype;
+	behtypeProto.onCreate = function()
+	{
+	};
+	behaviorProto.Instance = function(type, inst)
+	{
+		this.type = type;
+		this.behavior = type.behavior;
+		this.inst = inst;				// associated object instance to modify
+		this.runtime = type.runtime;
+	};
+	var behinstProto = behaviorProto.Instance.prototype;
+	behinstProto.onCreate = function()
+	{
+		this.ontime = 0;
+		this.offtime = 0;
+		this.stage = 0;			// 0 = on, 1 = off
+		this.stagetimeleft = 0;
+		this.timeleft = 0;
+	};
+	behinstProto.saveToJSON = function ()
+	{
+		return {
+			"ontime": this.ontime,
+			"offtime": this.offtime,
+			"stage": this.stage,
+			"stagetimeleft": this.stagetimeleft,
+			"timeleft": this.timeleft
+		};
+	};
+	behinstProto.loadFromJSON = function (o)
+	{
+		this.ontime = o["ontime"];
+		this.offtime = o["offtime"];
+		this.stage = o["stage"];
+		this.stagetimeleft = o["stagetimeleft"];
+		this.timeleft = o["timeleft"];
+		if (this.timeleft === null)
+			this.timeleft = Infinity;
+	};
+	behinstProto.tick = function ()
+	{
+		if (this.timeleft <= 0)
+			return;		// not flashing
+		var dt = this.runtime.getDt(this.inst);
+		this.timeleft -= dt;
+		if (this.timeleft <= 0)
+		{
+			this.timeleft = 0;
+			this.inst.visible = true;
+			this.runtime.redraw = true;
+			this.runtime.trigger(cr.behaviors.Flash.prototype.cnds.OnFlashEnded, this.inst);
+			return;
+		}
+		this.stagetimeleft -= dt;
+		if (this.stagetimeleft <= 0)
+		{
+			if (this.stage === 0)
+			{
+				this.inst.visible = false;
+				this.stage = 1;
+				this.stagetimeleft += this.offtime;
+			}
+			else
+			{
+				this.inst.visible = true;
+				this.stage = 0;
+				this.stagetimeleft += this.ontime;
+			}
+			this.runtime.redraw = true;
+		}
+	};
+	function Cnds() {};
+	Cnds.prototype.IsFlashing = function ()
+	{
+		return this.timeleft > 0;
+	};
+	Cnds.prototype.OnFlashEnded = function ()
+	{
+		return true;
+	};
+	behaviorProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.Flash = function (on_, off_, dur_)
+	{
+		this.ontime = on_;
+		this.offtime = off_;
+		this.stage = 1;		// always start off
+		this.stagetimeleft = off_;
+		this.timeleft = dur_;
+		this.inst.visible = false;
+		this.runtime.redraw = true;
+	};
+	Acts.prototype.StopFlashing = function ()
+	{
+		this.timeleft = 0;
+		this.inst.visible = true;
+		this.runtime.redraw = true;
+		return;
+	};
+	behaviorProto.acts = new Acts();
+	function Exps() {};
+	behaviorProto.exps = new Exps();
+}());
+;
+;
+cr.behaviors.Platform = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var behaviorProto = cr.behaviors.Platform.prototype;
+	behaviorProto.Type = function(behavior, objtype)
+	{
+		this.behavior = behavior;
+		this.objtype = objtype;
+		this.runtime = behavior.runtime;
+	};
+	var behtypeProto = behaviorProto.Type.prototype;
+	behtypeProto.onCreate = function()
+	{
+	};
+	var ANIMMODE_STOPPED = 0;
+	var ANIMMODE_MOVING = 1;
+	var ANIMMODE_JUMPING = 2;
+	var ANIMMODE_FALLING = 3;
+	behaviorProto.Instance = function(type, inst)
+	{
+		this.type = type;
+		this.behavior = type.behavior;
+		this.inst = inst;				// associated object instance to modify
+		this.runtime = type.runtime;
+		this.leftkey = false;
+		this.rightkey = false;
+		this.jumpkey = false;
+		this.jumped = false;			// prevent bunnyhopping
+		this.doubleJumped = false;
+		this.canDoubleJump = false;
+		this.ignoreInput = false;
+		this.simleft = false;
+		this.simright = false;
+		this.simjump = false;
+		this.lastFloorObject = null;
+		this.loadFloorObject = -1;
+		this.lastFloorX = 0;
+		this.lastFloorY = 0;
+		this.floorIsJumpthru = false;
+		this.animMode = ANIMMODE_STOPPED;
+		this.fallthrough = 0;			// fall through jump-thru.  >0 to disable, lasts a few ticks
+		this.firstTick = true;
+		this.dx = 0;
+		this.dy = 0;
+	};
+	var behinstProto = behaviorProto.Instance.prototype;
+	behinstProto.updateGravity = function()
+	{
+		this.downx = Math.cos(this.ga);
+		this.downy = Math.sin(this.ga);
+		this.rightx = Math.cos(this.ga - Math.PI / 2);
+		this.righty = Math.sin(this.ga - Math.PI / 2);
+		this.downx = cr.round6dp(this.downx);
+		this.downy = cr.round6dp(this.downy);
+		this.rightx = cr.round6dp(this.rightx);
+		this.righty = cr.round6dp(this.righty);
+		this.g1 = this.g;
+		if (this.g < 0)
+		{
+			this.downx *= -1;
+			this.downy *= -1;
+			this.g = Math.abs(this.g);
+		}
+	};
+	behinstProto.onCreate = function()
+	{
+		this.maxspeed = this.properties[0];
+		this.acc = this.properties[1];
+		this.dec = this.properties[2];
+		this.jumpStrength = this.properties[3];
+		this.g = this.properties[4];
+		this.g1 = this.g;
+		this.maxFall = this.properties[5];
+		this.enableDoubleJump = (this.properties[6] !== 0);	// 0=disabled, 1=enabled
+		this.jumpSustain = (this.properties[7] / 1000);		// convert ms to s
+		this.defaultControls = (this.properties[8] === 1);	// 0=no, 1=yes
+		this.enabled = (this.properties[9] !== 0);
+		this.wasOnFloor = false;
+		this.wasOverJumpthru = this.runtime.testOverlapJumpThru(this.inst);
+		this.loadOverJumpthru = -1;
+		this.sustainTime = 0;				// time of jump sustain remaining
+		this.ga = cr.to_radians(90);
+		this.updateGravity();
+		var self = this;
+		if (this.defaultControls && !this.runtime.isDomFree)
+		{
+			jQuery(document).keydown(function(info) {
+						self.onKeyDown(info);
+					});
+			jQuery(document).keyup(function(info) {
+						self.onKeyUp(info);
+					});
+		}
+		if (!this.recycled)
+		{
+			this.myDestroyCallback = function(inst) {
+										self.onInstanceDestroyed(inst);
+									};
+		}
+		this.runtime.addDestroyCallback(this.myDestroyCallback);
+		this.inst.extra["isPlatformBehavior"] = true;
+	};
+	behinstProto.saveToJSON = function ()
+	{
+		return {
+			"ii": this.ignoreInput,
+			"lfx": this.lastFloorX,
+			"lfy": this.lastFloorY,
+			"lfo": (this.lastFloorObject ? this.lastFloorObject.uid : -1),
+			"am": this.animMode,
+			"en": this.enabled,
+			"fall": this.fallthrough,
+			"ft": this.firstTick,
+			"dx": this.dx,
+			"dy": this.dy,
+			"ms": this.maxspeed,
+			"acc": this.acc,
+			"dec": this.dec,
+			"js": this.jumpStrength,
+			"g": this.g,
+			"g1": this.g1,
+			"mf": this.maxFall,
+			"wof": this.wasOnFloor,
+			"woj": (this.wasOverJumpthru ? this.wasOverJumpthru.uid : -1),
+			"ga": this.ga,
+			"edj": this.enableDoubleJump,
+			"cdj": this.canDoubleJump,
+			"dj": this.doubleJumped,
+			"sus": this.jumpSustain
+		};
+	};
+	behinstProto.loadFromJSON = function (o)
+	{
+		this.ignoreInput = o["ii"];
+		this.lastFloorX = o["lfx"];
+		this.lastFloorY = o["lfy"];
+		this.loadFloorObject = o["lfo"];
+		this.animMode = o["am"];
+		this.enabled = o["en"];
+		this.fallthrough = o["fall"];
+		this.firstTick = o["ft"];
+		this.dx = o["dx"];
+		this.dy = o["dy"];
+		this.maxspeed = o["ms"];
+		this.acc = o["acc"];
+		this.dec = o["dec"];
+		this.jumpStrength = o["js"];
+		this.g = o["g"];
+		this.g1 = o["g1"];
+		this.maxFall = o["mf"];
+		this.wasOnFloor = o["wof"];
+		this.loadOverJumpthru = o["woj"];
+		this.ga = o["ga"];
+		this.enableDoubleJump = o["edj"];
+		this.canDoubleJump = o["cdj"];
+		this.doubleJumped = o["dj"];
+		this.jumpSustain = o["sus"];
+		this.leftkey = false;
+		this.rightkey = false;
+		this.jumpkey = false;
+		this.jumped = false;
+		this.simleft = false;
+		this.simright = false;
+		this.simjump = false;
+		this.sustainTime = 0;
+		this.updateGravity();
+	};
+	behinstProto.afterLoad = function ()
+	{
+		if (this.loadFloorObject === -1)
+			this.lastFloorObject = null;
+		else
+			this.lastFloorObject = this.runtime.getObjectByUID(this.loadFloorObject);
+		if (this.loadOverJumpthru === -1)
+			this.wasOverJumpthru = null;
+		else
+			this.wasOverJumpthru = this.runtime.getObjectByUID(this.loadOverJumpthru);
+	};
+	behinstProto.onInstanceDestroyed = function (inst)
+	{
+		if (this.lastFloorObject == inst)
+			this.lastFloorObject = null;
+	};
+	behinstProto.onDestroy = function ()
+	{
+		this.lastFloorObject = null;
+		this.runtime.removeDestroyCallback(this.myDestroyCallback);
+	};
+	behinstProto.onKeyDown = function (info)
+	{
+		switch (info.which) {
+		case 38:	// up
+			info.preventDefault();
+			this.jumpkey = true;
+			break;
+		case 37:	// left
+			info.preventDefault();
+			this.leftkey = true;
+			break;
+		case 39:	// right
+			info.preventDefault();
+			this.rightkey = true;
+			break;
+		}
+	};
+	behinstProto.onKeyUp = function (info)
+	{
+		switch (info.which) {
+		case 38:	// up
+			info.preventDefault();
+			this.jumpkey = false;
+			this.jumped = false;
+			break;
+		case 37:	// left
+			info.preventDefault();
+			this.leftkey = false;
+			break;
+		case 39:	// right
+			info.preventDefault();
+			this.rightkey = false;
+			break;
+		}
+	};
+	behinstProto.onWindowBlur = function ()
+	{
+		this.leftkey = false;
+		this.rightkey = false;
+		this.jumpkey = false;
+	};
+	behinstProto.getGDir = function ()
+	{
+		if (this.g < 0)
+			return -1;
+		else
+			return 1;
+	};
+	behinstProto.isOnFloor = function ()
+	{
+		var ret = null;
+		var ret2 = null;
+		var i, len, j;
+		var oldx = this.inst.x;
+		var oldy = this.inst.y;
+		this.inst.x += this.downx;
+		this.inst.y += this.downy;
+		this.inst.set_bbox_changed();
+		if (this.lastFloorObject && this.runtime.testOverlap(this.inst, this.lastFloorObject) &&
+			(!this.runtime.typeHasBehavior(this.lastFloorObject.type, cr.behaviors.solid) || this.lastFloorObject.extra["solidEnabled"]))
+		{
+			this.inst.x = oldx;
+			this.inst.y = oldy;
+			this.inst.set_bbox_changed();
+			return this.lastFloorObject;
+		}
+		else
+		{
+			ret = this.runtime.testOverlapSolid(this.inst);
+			if (!ret && this.fallthrough === 0)
+				ret2 = this.runtime.testOverlapJumpThru(this.inst, true);
+			this.inst.x = oldx;
+			this.inst.y = oldy;
+			this.inst.set_bbox_changed();
+			if (ret)		// was overlapping solid
+			{
+				if (this.runtime.testOverlap(this.inst, ret))
+					return null;
+				else
+				{
+					this.floorIsJumpthru = false;
+					return ret;
+				}
+			}
+			if (ret2 && ret2.length)
+			{
+				for (i = 0, j = 0, len = ret2.length; i < len; i++)
+				{
+					ret2[j] = ret2[i];
+					if (!this.runtime.testOverlap(this.inst, ret2[i]))
+						j++;
+				}
+				if (j >= 1)
+				{
+					this.floorIsJumpthru = true;
+					return ret2[0];
+				}
+			}
+			return null;
+		}
+	};
+	behinstProto.tick = function ()
+	{
+	};
+	behinstProto.posttick = function ()
+	{
+		var dt = this.runtime.getDt(this.inst);
+		var mx, my, obstacle, mag, allover, i, len, j, oldx, oldy;
+		if (!this.jumpkey && !this.simjump)
+			this.jumped = false;
+		var left = this.leftkey || this.simleft;
+		var right = this.rightkey || this.simright;
+		var jumpkey = (this.jumpkey || this.simjump);
+		var jump = jumpkey && !this.jumped;
+		this.simleft = false;
+		this.simright = false;
+		this.simjump = false;
+		if (!this.enabled)
+			return;
+		if (this.ignoreInput)
+		{
+			left = false;
+			right = false;
+			jumpkey = false;
+			jump = false;
+		}
+		if (!jumpkey)
+			this.sustainTime = 0;
+		var lastFloor = this.lastFloorObject;
+		var floor_moved = false;
+		if (this.firstTick)
+		{
+			if (this.runtime.testOverlapSolid(this.inst) || this.runtime.testOverlapJumpThru(this.inst))
+			{
+				this.runtime.pushOutSolid(this.inst, -this.downx, -this.downy, 4, true);
+			}
+			this.firstTick = false;
+		}
+		if (lastFloor && this.dy === 0 && (lastFloor.y !== this.lastFloorY || lastFloor.x !== this.lastFloorX))
+		{
+			mx = (lastFloor.x - this.lastFloorX);
+			my = (lastFloor.y - this.lastFloorY);
+			this.inst.x += mx;
+			this.inst.y += my;
+			this.inst.set_bbox_changed();
+			this.lastFloorX = lastFloor.x;
+			this.lastFloorY = lastFloor.y;
+			floor_moved = true;
+			if (this.runtime.testOverlapSolid(this.inst))
+			{
+				this.runtime.pushOutSolid(this.inst, -mx, -my, Math.sqrt(mx * mx + my * my) * 2.5);
+			}
+		}
+		var floor_ = this.isOnFloor();
+		var collobj = this.runtime.testOverlapSolid(this.inst);
+		if (collobj)
+		{
+			if (this.inst.extra["inputPredicted"])
+			{
+				this.runtime.pushOutSolid(this.inst, -this.downx, -this.downy, 10, false);
+			}
+			else if (this.runtime.pushOutSolidNearest(this.inst, Math.max(this.inst.width, this.inst.height) / 2))
+			{
+				this.runtime.registerCollision(this.inst, collobj);
+			}
+			else
+				return;
+		}
+		if (floor_)
+		{
+			this.doubleJumped = false;		// reset double jump flags for next jump
+			this.canDoubleJump = false;
+			if (this.dy > 0)
+			{
+				if (!this.wasOnFloor)
+				{
+					this.runtime.pushInFractional(this.inst, -this.downx, -this.downy, floor_, 16);
+					this.wasOnFloor = true;
+				}
+				this.dy = 0;
+			}
+			if (lastFloor != floor_)
+			{
+				this.lastFloorObject = floor_;
+				this.lastFloorX = floor_.x;
+				this.lastFloorY = floor_.y;
+				this.runtime.registerCollision(this.inst, floor_);
+			}
+			else if (floor_moved)
+			{
+				collobj = this.runtime.testOverlapSolid(this.inst);
+				if (collobj)
+				{
+					this.runtime.registerCollision(this.inst, collobj);
+					if (mx !== 0)
+					{
+						if (mx > 0)
+							this.runtime.pushOutSolid(this.inst, -this.rightx, -this.righty);
+						else
+							this.runtime.pushOutSolid(this.inst, this.rightx, this.righty);
+					}
+					this.runtime.pushOutSolid(this.inst, -this.downx, -this.downy);
+				}
+			}
+		}
+		else
+		{
+			if (!jumpkey)
+				this.canDoubleJump = true;
+		}
+		if ((floor_ && jump) || (!floor_ && this.enableDoubleJump && jumpkey && this.canDoubleJump && !this.doubleJumped))
+		{
+			oldx = this.inst.x;
+			oldy = this.inst.y;
+			this.inst.x -= this.downx;
+			this.inst.y -= this.downy;
+			this.inst.set_bbox_changed();
+			if (!this.runtime.testOverlapSolid(this.inst))
+			{
+				this.sustainTime = this.jumpSustain;
+				this.runtime.trigger(cr.behaviors.Platform.prototype.cnds.OnJump, this.inst);
+				this.animMode = ANIMMODE_JUMPING;
+				this.dy = -this.jumpStrength;
+				jump = true;		// set in case is double jump
+				if (floor_)
+					this.jumped = true;
+				else
+					this.doubleJumped = true;
+			}
+			else
+				jump = false;
+			this.inst.x = oldx;
+			this.inst.y = oldy;
+			this.inst.set_bbox_changed();
+		}
+		if (!floor_)
+		{
+			if (jumpkey && this.sustainTime > 0)
+			{
+				this.dy = -this.jumpStrength;
+				this.sustainTime -= dt;
+			}
+			else
+			{
+				this.lastFloorObject = null;
+				this.dy += this.g * dt;
+				if (this.dy > this.maxFall)
+					this.dy = this.maxFall;
+			}
+			if (jump)
+				this.jumped = true;
+		}
+		this.wasOnFloor = !!floor_;
+		if (left == right)	// both up or both down
+		{
+			if (this.dx < 0)
+			{
+				this.dx += this.dec * dt;
+				if (this.dx > 0)
+					this.dx = 0;
+			}
+			else if (this.dx > 0)
+			{
+				this.dx -= this.dec * dt;
+				if (this.dx < 0)
+					this.dx = 0;
+			}
+		}
+		if (left && !right)
+		{
+			if (this.dx > 0)
+				this.dx -= (this.acc + this.dec) * dt;
+			else
+				this.dx -= this.acc * dt;
+		}
+		if (right && !left)
+		{
+			if (this.dx < 0)
+				this.dx += (this.acc + this.dec) * dt;
+			else
+				this.dx += this.acc * dt;
+		}
+		if (this.dx > this.maxspeed)
+			this.dx = this.maxspeed;
+		else if (this.dx < -this.maxspeed)
+			this.dx = -this.maxspeed;
+		var landed = false;
+		if (this.dx !== 0)
+		{
+			oldx = this.inst.x;
+			oldy = this.inst.y;
+			mx = this.dx * dt * this.rightx;
+			my = this.dx * dt * this.righty;
+			this.inst.x += this.rightx * (this.dx > 1 ? 1 : -1) - this.downx;
+			this.inst.y += this.righty * (this.dx > 1 ? 1 : -1) - this.downy;
+			this.inst.set_bbox_changed();
+			var is_jumpthru = false;
+			var slope_too_steep = this.runtime.testOverlapSolid(this.inst);
+			/*
+			if (!slope_too_steep && floor_)
+			{
+				slope_too_steep = this.runtime.testOverlapJumpThru(this.inst);
+				is_jumpthru = true;
+				if (slope_too_steep)
+				{
+					this.inst.x = oldx;
+					this.inst.y = oldy;
+					this.inst.set_bbox_changed();
+					if (this.runtime.testOverlap(this.inst, slope_too_steep))
+					{
+						slope_too_steep = null;
+						is_jumpthru = false;
+					}
+				}
+			}
+			*/
+			this.inst.x = oldx + mx;
+			this.inst.y = oldy + my;
+			this.inst.set_bbox_changed();
+			obstacle = this.runtime.testOverlapSolid(this.inst);
+			if (!obstacle && floor_)
+			{
+				obstacle = this.runtime.testOverlapJumpThru(this.inst);
+				if (obstacle)
+				{
+					this.inst.x = oldx;
+					this.inst.y = oldy;
+					this.inst.set_bbox_changed();
+					if (this.runtime.testOverlap(this.inst, obstacle))
+					{
+						obstacle = null;
+						is_jumpthru = false;
+					}
+					else
+						is_jumpthru = true;
+					this.inst.x = oldx + mx;
+					this.inst.y = oldy + my;
+					this.inst.set_bbox_changed();
+				}
+			}
+			if (obstacle)
+			{
+				var push_dist = Math.abs(this.dx * dt) + 2;
+				if (slope_too_steep || !this.runtime.pushOutSolid(this.inst, -this.downx, -this.downy, push_dist, is_jumpthru, obstacle))
+				{
+					this.runtime.registerCollision(this.inst, obstacle);
+					push_dist = Math.max(Math.abs(this.dx * dt * 2.5), 30);
+					if (!this.runtime.pushOutSolid(this.inst, this.rightx * (this.dx < 0 ? 1 : -1), this.righty * (this.dx < 0 ? 1 : -1), push_dist, false))
+					{
+						this.inst.x = oldx;
+						this.inst.y = oldy;
+						this.inst.set_bbox_changed();
+					}
+					else if (floor_ && !is_jumpthru && !this.floorIsJumpthru)
+					{
+						oldx = this.inst.x;
+						oldy = this.inst.y;
+						this.inst.x += this.downx;
+						this.inst.y += this.downy;
+						if (this.runtime.testOverlapSolid(this.inst))
+						{
+							if (!this.runtime.pushOutSolid(this.inst, -this.downx, -this.downy, 3, false))
+							{
+								this.inst.x = oldx;
+								this.inst.y = oldy;
+								this.inst.set_bbox_changed();
+							}
+						}
+						else
+						{
+							this.inst.x = oldx;
+							this.inst.y = oldy;
+							this.inst.set_bbox_changed();
+						}
+					}
+					if (!is_jumpthru)
+						this.dx = 0;	// stop
+				}
+				else if (!slope_too_steep && !jump && (Math.abs(this.dy) < Math.abs(this.jumpStrength / 4)))
+				{
+					this.dy = 0;
+					if (!floor_)
+						landed = true;
+				}
+			}
+			else
+			{
+				var newfloor = this.isOnFloor();
+				if (floor_ && !newfloor)
+				{
+					mag = Math.ceil(Math.abs(this.dx * dt)) + 2;
+					oldx = this.inst.x;
+					oldy = this.inst.y;
+					this.inst.x += this.downx * mag;
+					this.inst.y += this.downy * mag;
+					this.inst.set_bbox_changed();
+					if (this.runtime.testOverlapSolid(this.inst) || this.runtime.testOverlapJumpThru(this.inst))
+						this.runtime.pushOutSolid(this.inst, -this.downx, -this.downy, mag + 2, true);
+					else
+					{
+						this.inst.x = oldx;
+						this.inst.y = oldy;
+						this.inst.set_bbox_changed();
+					}
+				}
+				else if (newfloor && this.dy === 0)
+				{
+					this.runtime.pushInFractional(this.inst, -this.downx, -this.downy, newfloor, 16);
+				}
+			}
+		}
+		if (this.dy !== 0)
+		{
+			oldx = this.inst.x;
+			oldy = this.inst.y;
+			this.inst.x += this.dy * dt * this.downx;
+			this.inst.y += this.dy * dt * this.downy;
+			var newx = this.inst.x;
+			var newy = this.inst.y;
+			this.inst.set_bbox_changed();
+			collobj = this.runtime.testOverlapSolid(this.inst);
+			var fell_on_jumpthru = false;
+			if (!collobj && (this.dy > 0) && !floor_)
+			{
+				allover = this.fallthrough > 0 ? null : this.runtime.testOverlapJumpThru(this.inst, true);
+				if (allover && allover.length)
+				{
+					if (this.wasOverJumpthru)
+					{
+						this.inst.x = oldx;
+						this.inst.y = oldy;
+						this.inst.set_bbox_changed();
+						for (i = 0, j = 0, len = allover.length; i < len; i++)
+						{
+							allover[j] = allover[i];
+							if (!this.runtime.testOverlap(this.inst, allover[i]))
+								j++;
+						}
+						allover.length = j;
+						this.inst.x = newx;
+						this.inst.y = newy;
+						this.inst.set_bbox_changed();
+					}
+					if (allover.length >= 1)
+						collobj = allover[0];
+				}
+				fell_on_jumpthru = !!collobj;
+			}
+			if (collobj)
+			{
+				this.runtime.registerCollision(this.inst, collobj);
+				this.sustainTime = 0;
+				var push_dist = (fell_on_jumpthru ? Math.abs(this.dy * dt * 2.5 + 10) : Math.max(Math.abs(this.dy * dt * 2.5 + 10), 30));
+				if (!this.runtime.pushOutSolid(this.inst, this.downx * (this.dy < 0 ? 1 : -1), this.downy * (this.dy < 0 ? 1 : -1), push_dist, fell_on_jumpthru, collobj))
+				{
+					this.inst.x = oldx;
+					this.inst.y = oldy;
+					this.inst.set_bbox_changed();
+					this.wasOnFloor = true;		// prevent adjustment for unexpected floor landings
+					if (!fell_on_jumpthru)
+						this.dy = 0;	// stop
+				}
+				else
+				{
+					this.lastFloorObject = collobj;
+					this.lastFloorX = collobj.x;
+					this.lastFloorY = collobj.y;
+					this.floorIsJumpthru = fell_on_jumpthru;
+					if (fell_on_jumpthru)
+						landed = true;
+					this.dy = 0;	// stop
+				}
+			}
+		}
+		if (this.animMode !== ANIMMODE_FALLING && this.dy > 0 && !floor_)
+		{
+			this.runtime.trigger(cr.behaviors.Platform.prototype.cnds.OnFall, this.inst);
+			this.animMode = ANIMMODE_FALLING;
+		}
+		if (floor_ || landed)
+		{
+			if (this.animMode === ANIMMODE_FALLING || landed || (jump && this.dy === 0))
+			{
+				this.runtime.trigger(cr.behaviors.Platform.prototype.cnds.OnLand, this.inst);
+				if (this.dx === 0 && this.dy === 0)
+					this.animMode = ANIMMODE_STOPPED;
+				else
+					this.animMode = ANIMMODE_MOVING;
+			}
+			else
+			{
+				if (this.animMode !== ANIMMODE_STOPPED && this.dx === 0 && this.dy === 0)
+				{
+					this.runtime.trigger(cr.behaviors.Platform.prototype.cnds.OnStop, this.inst);
+					this.animMode = ANIMMODE_STOPPED;
+				}
+				if (this.animMode !== ANIMMODE_MOVING && (this.dx !== 0 || this.dy !== 0) && !jump)
+				{
+					this.runtime.trigger(cr.behaviors.Platform.prototype.cnds.OnMove, this.inst);
+					this.animMode = ANIMMODE_MOVING;
+				}
+			}
+		}
+		if (this.fallthrough > 0)
+			this.fallthrough--;
+		this.wasOverJumpthru = this.runtime.testOverlapJumpThru(this.inst);
+	};
+	function Cnds() {};
+	Cnds.prototype.IsMoving = function ()
+	{
+		return this.dx !== 0 || this.dy !== 0;
+	};
+	Cnds.prototype.CompareSpeed = function (cmp, s)
+	{
+		var speed = Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+		return cr.do_cmp(speed, cmp, s);
+	};
+	Cnds.prototype.IsOnFloor = function ()
+	{
+		if (this.dy !== 0)
+			return false;
+		var ret = null;
+		var ret2 = null;
+		var i, len, j;
+		var oldx = this.inst.x;
+		var oldy = this.inst.y;
+		this.inst.x += this.downx;
+		this.inst.y += this.downy;
+		this.inst.set_bbox_changed();
+		ret = this.runtime.testOverlapSolid(this.inst);
+		if (!ret && this.fallthrough === 0)
+			ret2 = this.runtime.testOverlapJumpThru(this.inst, true);
+		this.inst.x = oldx;
+		this.inst.y = oldy;
+		this.inst.set_bbox_changed();
+		if (ret)		// was overlapping solid
+		{
+			return !this.runtime.testOverlap(this.inst, ret);
+		}
+		if (ret2 && ret2.length)
+		{
+			for (i = 0, j = 0, len = ret2.length; i < len; i++)
+			{
+				ret2[j] = ret2[i];
+				if (!this.runtime.testOverlap(this.inst, ret2[i]))
+					j++;
+			}
+			if (j >= 1)
+				return true;
+		}
+		return false;
+	};
+	Cnds.prototype.IsByWall = function (side)
+	{
+		var ret = false;
+		var oldx = this.inst.x;
+		var oldy = this.inst.y;
+		this.inst.x -= this.downx * 3;
+		this.inst.y -= this.downy * 3;
+		this.inst.set_bbox_changed();
+		if (this.runtime.testOverlapSolid(this.inst))
+		{
+			this.inst.x = oldx;
+			this.inst.y = oldy;
+			this.inst.set_bbox_changed();
+			return false;
+		}
+		if (side === 0)		// left
+		{
+			this.inst.x -= this.rightx * 2;
+			this.inst.y -= this.righty * 2;
+		}
+		else
+		{
+			this.inst.x += this.rightx * 2;
+			this.inst.y += this.righty * 2;
+		}
+		this.inst.set_bbox_changed();
+		ret = this.runtime.testOverlapSolid(this.inst);
+		this.inst.x = oldx;
+		this.inst.y = oldy;
+		this.inst.set_bbox_changed();
+		return ret;
+	};
+	Cnds.prototype.IsJumping = function ()
+	{
+		return this.dy < 0;
+	};
+	Cnds.prototype.IsFalling = function ()
+	{
+		return this.dy > 0;
+	};
+	Cnds.prototype.OnJump = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnFall = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnStop = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnMove = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnLand = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.IsDoubleJumpEnabled = function ()
+	{
+		return this.enableDoubleJump;
+	};
+	behaviorProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.SetIgnoreInput = function (ignoring)
+	{
+		this.ignoreInput = ignoring;
+	};
+	Acts.prototype.SetMaxSpeed = function (maxspeed)
+	{
+		this.maxspeed = maxspeed;
+		if (this.maxspeed < 0)
+			this.maxspeed = 0;
+	};
+	Acts.prototype.SetAcceleration = function (acc)
+	{
+		this.acc = acc;
+		if (this.acc < 0)
+			this.acc = 0;
+	};
+	Acts.prototype.SetDeceleration = function (dec)
+	{
+		this.dec = dec;
+		if (this.dec < 0)
+			this.dec = 0;
+	};
+	Acts.prototype.SetJumpStrength = function (js)
+	{
+		this.jumpStrength = js;
+		if (this.jumpStrength < 0)
+			this.jumpStrength = 0;
+	};
+	Acts.prototype.SetGravity = function (grav)
+	{
+		if (this.g1 === grav)
+			return;		// no change
+		this.g = grav;
+		this.updateGravity();
+		if (this.runtime.testOverlapSolid(this.inst))
+		{
+			this.runtime.pushOutSolid(this.inst, this.downx, this.downy, 10);
+			this.inst.x += this.downx * 2;
+			this.inst.y += this.downy * 2;
+			this.inst.set_bbox_changed();
+		}
+		this.lastFloorObject = null;
+	};
+	Acts.prototype.SetMaxFallSpeed = function (mfs)
+	{
+		this.maxFall = mfs;
+		if (this.maxFall < 0)
+			this.maxFall = 0;
+	};
+	Acts.prototype.SimulateControl = function (ctrl)
+	{
+		switch (ctrl) {
+		case 0:		this.simleft = true;	break;
+		case 1:		this.simright = true;	break;
+		case 2:		this.simjump = true;	break;
+		}
+	};
+	Acts.prototype.SetVectorX = function (vx)
+	{
+		this.dx = vx;
+	};
+	Acts.prototype.SetVectorY = function (vy)
+	{
+		this.dy = vy;
+	};
+	Acts.prototype.SetGravityAngle = function (a)
+	{
+		a = cr.to_radians(a);
+		a = cr.clamp_angle(a);
+		if (this.ga === a)
+			return;		// no change
+		this.ga = a;
+		this.updateGravity();
+		this.lastFloorObject = null;
+	};
+	Acts.prototype.SetEnabled = function (en)
+	{
+		if (this.enabled !== (en === 1))
+		{
+			this.enabled = (en === 1);
+			if (!this.enabled)
+				this.lastFloorObject = null;
+		}
+	};
+	Acts.prototype.FallThrough = function ()
+	{
+		var oldx = this.inst.x;
+		var oldy = this.inst.y;
+		this.inst.x += this.downx;
+		this.inst.y += this.downy;
+		this.inst.set_bbox_changed();
+		var overlaps = this.runtime.testOverlapJumpThru(this.inst, false);
+		this.inst.x = oldx;
+		this.inst.y = oldy;
+		this.inst.set_bbox_changed();
+		if (!overlaps)
+			return;
+		this.fallthrough = 3;			// disable jumpthrus for 3 ticks (1 doesn't do it, 2 does, 3 to be on safe side)
+		this.lastFloorObject = null;
+	};
+	Acts.prototype.SetDoubleJumpEnabled = function (e)
+	{
+		this.enableDoubleJump = (e !== 0);
+	};
+	Acts.prototype.SetJumpSustain = function (s)
+	{
+		this.jumpSustain = s / 1000;		// convert to ms
+	};
+	behaviorProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.Speed = function (ret)
+	{
+		ret.set_float(Math.sqrt(this.dx * this.dx + this.dy * this.dy));
+	};
+	Exps.prototype.MaxSpeed = function (ret)
+	{
+		ret.set_float(this.maxspeed);
+	};
+	Exps.prototype.Acceleration = function (ret)
+	{
+		ret.set_float(this.acc);
+	};
+	Exps.prototype.Deceleration = function (ret)
+	{
+		ret.set_float(this.dec);
+	};
+	Exps.prototype.JumpStrength = function (ret)
+	{
+		ret.set_float(this.jumpStrength);
+	};
+	Exps.prototype.Gravity = function (ret)
+	{
+		ret.set_float(this.g);
+	};
+	Exps.prototype.GravityAngle = function (ret)
+	{
+		ret.set_float(cr.to_degrees(this.ga));
+	};
+	Exps.prototype.MaxFallSpeed = function (ret)
+	{
+		ret.set_float(this.maxFall);
+	};
+	Exps.prototype.MovingAngle = function (ret)
+	{
+		ret.set_float(cr.to_degrees(Math.atan2(this.dy, this.dx)));
+	};
+	Exps.prototype.VectorX = function (ret)
+	{
+		ret.set_float(this.dx);
+	};
+	Exps.prototype.VectorY = function (ret)
+	{
+		ret.set_float(this.dy);
+	};
+	Exps.prototype.JumpSustain = function (ret)
+	{
+		ret.set_float(this.jumpSustain * 1000);		// convert back to ms
+	};
+	behaviorProto.exps = new Exps();
+}());
+;
+;
+cr.behaviors.Sin = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var behaviorProto = cr.behaviors.Sin.prototype;
+	behaviorProto.Type = function(behavior, objtype)
+	{
+		this.behavior = behavior;
+		this.objtype = objtype;
+		this.runtime = behavior.runtime;
+	};
+	var behtypeProto = behaviorProto.Type.prototype;
+	behtypeProto.onCreate = function()
+	{
+	};
+	behaviorProto.Instance = function(type, inst)
+	{
+		this.type = type;
+		this.behavior = type.behavior;
+		this.inst = inst;				// associated object instance to modify
+		this.runtime = type.runtime;
+		this.i = 0;		// period offset (radians)
+	};
+	var behinstProto = behaviorProto.Instance.prototype;
+	var _2pi = 2 * Math.PI;
+	var _pi_2 = Math.PI / 2;
+	var _3pi_2 = (3 * Math.PI) / 2;
+	behinstProto.onCreate = function()
+	{
+		this.active = (this.properties[0] === 1);
+		this.movement = this.properties[1]; // 0=Horizontal|1=Vertical|2=Size|3=Width|4=Height|5=Angle|6=Opacity|7=Value only
+		this.wave = this.properties[2];		// 0=Sine|1=Triangle|2=Sawtooth|3=Reverse sawtooth|4=Square
+		this.period = this.properties[3];
+		this.period += Math.random() * this.properties[4];								// period random
+		if (this.period === 0)
+			this.i = 0;
+		else
+		{
+			this.i = (this.properties[5] / this.period) * _2pi;								// period offset
+			this.i += ((Math.random() * this.properties[6]) / this.period) * _2pi;			// period offset random
+		}
+		this.mag = this.properties[7];													// magnitude
+		this.mag += Math.random() * this.properties[8];									// magnitude random
+		this.initialValue = 0;
+		this.initialValue2 = 0;
+		this.ratio = 0;
+		this.init();
+	};
+	behinstProto.saveToJSON = function ()
+	{
+		return {
+			"i": this.i,
+			"a": this.active,
+			"mv": this.movement,
+			"w": this.wave,
+			"p": this.period,
+			"mag": this.mag,
+			"iv": this.initialValue,
+			"iv2": this.initialValue2,
+			"r": this.ratio,
+			"lkv": this.lastKnownValue,
+			"lkv2": this.lastKnownValue2
+		};
+	};
+	behinstProto.loadFromJSON = function (o)
+	{
+		this.i = o["i"];
+		this.active = o["a"];
+		this.movement = o["mv"];
+		this.wave = o["w"];
+		this.period = o["p"];
+		this.mag = o["mag"];
+		this.initialValue = o["iv"];
+		this.initialValue2 = o["iv2"] || 0;
+		this.ratio = o["r"];
+		this.lastKnownValue = o["lkv"];
+		this.lastKnownValue2 = o["lkv2"] || 0;
+	};
+	behinstProto.init = function ()
+	{
+		switch (this.movement) {
+		case 0:		// horizontal
+			this.initialValue = this.inst.x;
+			break;
+		case 1:		// vertical
+			this.initialValue = this.inst.y;
+			break;
+		case 2:		// size
+			this.initialValue = this.inst.width;
+			this.ratio = this.inst.height / this.inst.width;
+			break;
+		case 3:		// width
+			this.initialValue = this.inst.width;
+			break;
+		case 4:		// height
+			this.initialValue = this.inst.height;
+			break;
+		case 5:		// angle
+			this.initialValue = this.inst.angle;
+			this.mag = cr.to_radians(this.mag);		// convert magnitude from degrees to radians
+			break;
+		case 6:		// opacity
+			this.initialValue = this.inst.opacity;
+			break;
+		case 7:
+			this.initialValue = 0;
+			break;
+		case 8:		// forwards/backwards
+			this.initialValue = this.inst.x;
+			this.initialValue2 = this.inst.y;
+			break;
+		default:
+;
+		}
+		this.lastKnownValue = this.initialValue;
+		this.lastKnownValue2 = this.initialValue2;
+	};
+	behinstProto.waveFunc = function (x)
+	{
+		x = x % _2pi;
+		switch (this.wave) {
+		case 0:		// sine
+			return Math.sin(x);
+		case 1:		// triangle
+			if (x <= _pi_2)
+				return x / _pi_2;
+			else if (x <= _3pi_2)
+				return 1 - (2 * (x - _pi_2) / Math.PI);
+			else
+				return (x - _3pi_2) / _pi_2 - 1;
+		case 2:		// sawtooth
+			return 2 * x / _2pi - 1;
+		case 3:		// reverse sawtooth
+			return -2 * x / _2pi + 1;
+		case 4:		// square
+			return x < Math.PI ? -1 : 1;
+		};
+		return 0;
+	};
+	behinstProto.tick = function ()
+	{
+		var dt = this.runtime.getDt(this.inst);
+		if (!this.active || dt === 0)
+			return;
+		if (this.period === 0)
+			this.i = 0;
+		else
+		{
+			this.i += (dt / this.period) * _2pi;
+			this.i = this.i % _2pi;
+		}
+		this.updateFromPhase();
+	};
+	behinstProto.updateFromPhase = function ()
+	{
+		switch (this.movement) {
+		case 0:		// horizontal
+			if (this.inst.x !== this.lastKnownValue)
+				this.initialValue += this.inst.x - this.lastKnownValue;
+			this.inst.x = this.initialValue + this.waveFunc(this.i) * this.mag;
+			this.lastKnownValue = this.inst.x;
+			break;
+		case 1:		// vertical
+			if (this.inst.y !== this.lastKnownValue)
+				this.initialValue += this.inst.y - this.lastKnownValue;
+			this.inst.y = this.initialValue + this.waveFunc(this.i) * this.mag;
+			this.lastKnownValue = this.inst.y;
+			break;
+		case 2:		// size
+			this.inst.width = this.initialValue + this.waveFunc(this.i) * this.mag;
+			this.inst.height = this.inst.width * this.ratio;
+			break;
+		case 3:		// width
+			this.inst.width = this.initialValue + this.waveFunc(this.i) * this.mag;
+			break;
+		case 4:		// height
+			this.inst.height = this.initialValue + this.waveFunc(this.i) * this.mag;
+			break;
+		case 5:		// angle
+			if (this.inst.angle !== this.lastKnownValue)
+				this.initialValue = cr.clamp_angle(this.initialValue + (this.inst.angle - this.lastKnownValue));
+			this.inst.angle = cr.clamp_angle(this.initialValue + this.waveFunc(this.i) * this.mag);
+			this.lastKnownValue = this.inst.angle;
+			break;
+		case 6:		// opacity
+			this.inst.opacity = this.initialValue + (this.waveFunc(this.i) * this.mag) / 100;
+			if (this.inst.opacity < 0)
+				this.inst.opacity = 0;
+			else if (this.inst.opacity > 1)
+				this.inst.opacity = 1;
+			break;
+		case 8:		// forwards/backwards
+			if (this.inst.x !== this.lastKnownValue)
+				this.initialValue += this.inst.x - this.lastKnownValue;
+			if (this.inst.y !== this.lastKnownValue2)
+				this.initialValue2 += this.inst.y - this.lastKnownValue2;
+			this.inst.x = this.initialValue + Math.cos(this.inst.angle) * this.waveFunc(this.i) * this.mag;
+			this.inst.y = this.initialValue2 + Math.sin(this.inst.angle) * this.waveFunc(this.i) * this.mag;
+			this.lastKnownValue = this.inst.x;
+			this.lastKnownValue2 = this.inst.y;
+			break;
+		}
+		this.inst.set_bbox_changed();
+	};
+	behinstProto.onSpriteFrameChanged = function (prev_frame, next_frame)
+	{
+		switch (this.movement) {
+		case 2:	// size
+			this.initialValue *= (next_frame.width / prev_frame.width);
+			this.ratio = next_frame.height / next_frame.width;
+			break;
+		case 3:	// width
+			this.initialValue *= (next_frame.width / prev_frame.width);
+			break;
+		case 4:	// height
+			this.initialValue *= (next_frame.height / prev_frame.height);
+			break;
+		}
+	};
+	function Cnds() {};
+	Cnds.prototype.IsActive = function ()
+	{
+		return this.active;
+	};
+	Cnds.prototype.CompareMovement = function (m)
+	{
+		return this.movement === m;
+	};
+	Cnds.prototype.ComparePeriod = function (cmp, v)
+	{
+		return cr.do_cmp(this.period, cmp, v);
+	};
+	Cnds.prototype.CompareMagnitude = function (cmp, v)
+	{
+		if (this.movement === 5)
+			return cr.do_cmp(this.mag, cmp, cr.to_radians(v));
+		else
+			return cr.do_cmp(this.mag, cmp, v);
+	};
+	Cnds.prototype.CompareWave = function (w)
+	{
+		return this.wave === w;
+	};
+	behaviorProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.SetActive = function (a)
+	{
+		this.active = (a === 1);
+	};
+	Acts.prototype.SetPeriod = function (x)
+	{
+		this.period = x;
+	};
+	Acts.prototype.SetMagnitude = function (x)
+	{
+		this.mag = x;
+		if (this.movement === 5)	// angle
+			this.mag = cr.to_radians(this.mag);
+	};
+	Acts.prototype.SetMovement = function (m)
+	{
+		if (this.movement === 5)
+			this.mag = cr.to_degrees(this.mag);
+		this.movement = m;
+		this.init();
+	};
+	Acts.prototype.SetWave = function (w)
+	{
+		this.wave = w;
+	};
+	Acts.prototype.SetPhase = function (x)
+	{
+		this.i = (x * _2pi) % _2pi;
+		this.updateFromPhase();
+	};
+	Acts.prototype.UpdateInitialState = function ()
+	{
+		this.init();
+	};
+	behaviorProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.CyclePosition = function (ret)
+	{
+		ret.set_float(this.i / _2pi);
+	};
+	Exps.prototype.Period = function (ret)
+	{
+		ret.set_float(this.period);
+	};
+	Exps.prototype.Magnitude = function (ret)
+	{
+		if (this.movement === 5)	// angle
+			ret.set_float(cr.to_degrees(this.mag));
+		else
+			ret.set_float(this.mag);
+	};
+	Exps.prototype.Value = function (ret)
+	{
+		ret.set_float(this.waveFunc(this.i) * this.mag);
+	};
+	behaviorProto.exps = new Exps();
+}());
 cr.getObjectRefTable = function () { return [
 	cr.plugins_.Audio,
 	cr.plugins_.Mouse,
@@ -22912,23 +24308,40 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Sprite,
 	cr.plugins_.Text,
 	cr.plugins_.Spritefont2,
+	cr.behaviors.Flash,
+	cr.behaviors.Sin,
+	cr.behaviors.Platform,
 	cr.system_object.prototype.cnds.EveryTick,
 	cr.plugins_.Sprite.prototype.acts.SetPos,
 	cr.plugins_.Sprite.prototype.exps.X,
 	cr.plugins_.Sprite.prototype.exps.Y,
+	cr.plugins_.Sprite.prototype.acts.SetX,
 	cr.plugins_.Mouse.prototype.cnds.OnObjectClicked,
 	cr.system_object.prototype.acts.CreateObject,
 	cr.plugins_.Audio.prototype.acts.Play,
-	cr.plugins_.Touch.prototype.cnds.OnTouchObject,
 	cr.system_object.prototype.cnds.Every,
+	cr.plugins_.Mouse.prototype.cnds.IsOverObject,
+	cr.plugins_.Touch.prototype.cnds.OnTouchObject,
+	cr.system_object.prototype.cnds.CompareVar,
+	cr.system_object.prototype.acts.SetVar,
+	cr.plugins_.Touch.prototype.cnds.IsTouchingObject,
+	cr.system_object.prototype.acts.SubVar,
 	cr.system_object.prototype.exps.random,
+	cr.plugins_.Sprite.prototype.acts.SetAnimFrame,
 	cr.system_object.prototype.acts.AddVar,
 	cr.plugins_.Sprite.prototype.cnds.OnCollision,
 	cr.plugins_.Sprite.prototype.acts.Destroy,
 	cr.plugins_.Sprite.prototype.acts.Spawn,
 	cr.plugins_.Text.prototype.acts.SetText,
-	cr.system_object.prototype.acts.GoToLayout,
 	cr.plugins_.Sprite.prototype.cnds.IsOutsideLayout,
+	cr.plugins_.Sprite.prototype.acts.SetVisible,
+	cr.system_object.prototype.acts.Wait,
+	cr.behaviors.Flash.prototype.acts.Flash,
+	cr.behaviors.Flash.prototype.cnds.OnFlashEnded,
+	cr.plugins_.Sprite.prototype.cnds.IsVisible,
+	cr.plugins_.Sprite.prototype.cnds.CompareY,
+	cr.plugins_.Sprite.prototype.acts.SetY,
+	cr.system_object.prototype.acts.GoToLayout,
 	cr.plugins_.Text.prototype.cnds.OnCreated,
 	cr.system_object.prototype.acts.ResetGlobals
 ];};

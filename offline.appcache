@@ -1,5 +1,5 @@
 ﻿CACHE MANIFEST
-#1490101006
+#1490174706
 data.js
 c2runtime.js
 jquery-2.1.1.min.js
@@ -19,6 +19,11 @@ images/enem1-sheet0.png
 images/enem2-sheet0.png
 images/spritefont.png
 images/scorebutton-sheet0.png
+images/shield-sheet0.png
+images/shieldpower-sheet0.png
+images/shieldparticle.png
+images/rock-sheet0.png
+images/particles2.png
 media/explosion+1.m4a
 media/explosion+1.ogg
 media/gun+silencer.m4a
