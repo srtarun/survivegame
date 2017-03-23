@@ -1,5 +1,5 @@
 ﻿{
-	"version": 1490202648,
+	"version": 1490263459,
 	"fileList": [
 		"data.js",
 		"c2runtime.js",
@@ -24,6 +24,8 @@
 		"images/shieldparticle.png",
 		"images/rock-sheet0.png",
 		"images/particles2.png",
+		"images/outerbulletbar-sheet0.png",
+		"images/bulletbar-sheet0.png",
 		"media/explosion+1.m4a",
 		"media/explosion+1.ogg",
 		"media/gun+silencer.m4a",
