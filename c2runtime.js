@@ -23758,6 +23758,7 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Sprite.prototype.acts.Spawn,
 	cr.plugins_.Text.prototype.acts.SetText,
 	cr.plugins_.Sprite.prototype.acts.AddInstanceVar,
+	cr.plugins_.Sprite.prototype.acts.SetInstanceVar,
 	cr.behaviors.Fade.prototype.acts.RestartFade,
 	cr.plugins_.Text.prototype.acts.SetVisible,
 	cr.system_object.prototype.acts.SetVar,
