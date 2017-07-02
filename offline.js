@@ -1,5 +1,5 @@
 ﻿{
-	"version": 1499008947,
+	"version": 1499013756,
 	"fileList": [
 		"data.js",
 		"c2runtime.js",
@@ -39,6 +39,7 @@
 		"images/star-sheet0.png",
 		"images/sound_icon-sheet0.png",
 		"images/sound_icon-sheet1.png",
+		"images/logo-sheet0.png",
 		"media/bomb+1.ogg",
 		"media/explosion+1.ogg",
 		"media/gun+silencer.ogg",
