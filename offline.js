@@ -1,5 +1,5 @@
 ﻿{
-	"version": 1499017012,
+	"version": 1499018210,
 	"fileList": [
 		"data.js",
 		"c2runtime.js",
@@ -12,7 +12,6 @@
 		"images/particles.png",
 		"images/play_par.png",
 		"images/sprite-sheet0.png",
-		"images/bg_end-sheet0.png",
 		"images/scorebutton-sheet0.png",
 		"images/playagain-sheet0.png",
 		"images/shield-sheet0.png",
